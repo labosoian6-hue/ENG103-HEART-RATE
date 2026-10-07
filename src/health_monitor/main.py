@@ -11,20 +11,25 @@ UPLOAD_RETRY_SECONDS = 300  # wait 5 minutes between failed upload attempts
 
 
 def main():
-    sensor = MockHeartRateSensor()
+    # Choose the sensor: fake readings on a laptop, real hardware on the Pi
+    if config.USE_MOCK_SENSOR:
+        sensor = MockHeartRateSensor()
+    else:
+        from .sensor import HeartRateSensor
+        sensor = HeartRateSensor()
 
     controller = LEDController(
         green_pin=config.LED_OK_PIN,
         red_pin=config.LED_ALERT_PIN
     )
 
-    # No alert state until the first real reading
+    # No alert state until the first valid reading
     alert_state = None
 
     last_read_time = 0
 
     # Don't upload at startup; the first upload happens when the date changes.
-    # To test the upload, temporarily subtract a day:
+    # To test the upload, temporarily use:
     #   datetime.now().date() - timedelta(days=1)
     last_upload_date = datetime.now().date()
     last_upload_attempt = 0
@@ -39,15 +44,22 @@ def main():
 
             if current_time - last_read_time >= config.READ_INTERVAL_SECONDS:
                 latest_reading = sensor.read_vitals()
-                alert_state = evaluate(latest_reading)
 
-                print(
-                    f"BPM: {latest_reading.bpm}, "
-                    f"SpO2: {latest_reading.spo2}, "
-                    f"Alert: {alert_state.value}"
-                )
+                if not latest_reading.valid:
+                    # No finger / bad signal: don't alert, don't save
+                    print("No valid reading, place your finger on the sensor")
+                    alert_state = None
+                else:
+                    alert_state = evaluate(latest_reading)
 
-                save_reading_locally(latest_reading, alert_state)
+                    print(
+                        f"BPM: {latest_reading.bpm}, "
+                        f"SpO2: {latest_reading.spo2}, "
+                        f"Alert: {alert_state.value}"
+                    )
+
+                    save_reading_locally(latest_reading, alert_state)
+
                 last_read_time = current_time
 
             # 3. Daily upload, retried at most every UPLOAD_RETRY_SECONDS
@@ -67,6 +79,10 @@ def main():
 
     except KeyboardInterrupt:
         print("\nHealth monitor stopped.")
+
+    finally:
+        # Always release the sensor, even if something crashed
+        sensor.close()
 
 
 if __name__ == "__main__":

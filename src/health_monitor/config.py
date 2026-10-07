@@ -20,3 +20,4 @@ LOCAL_READINGS_FILE = "readings.csv"
 
 # --- Sampling ---
 READ_INTERVAL_SECONDS = 1.0
+USE_MOCK_SENSOR = True
